@@ -15,26 +15,22 @@ We use Supabase for **Postgres** (users, chats, source documents, chunks, embedd
 3. Set a **project name** (e.g. `Document Copilot`).
 4. Choose a **database password** — save it somewhere safe; you need it for direct DB access and `supabase link`.
 5. Pick a **region** close to you.
-6. Click **Create new project** and wait until status is healthy (~1–2 minutes).
+6. Click **Create new project** and wait until the dashboard reports it is ready.
 
 ## 3. Collect credentials
 
-You need these values in backend and frontend env config (exact variable names will live in each service's settings module once the app is built).
+The running app reads the following exact variable names. Store private credentials only in `backend/.env`; `frontend/.env` is compiled into browser-visible code.
 
 | Value | Where to find it | Used by |
 | ----- | ---------------- | ------- |
 | **Project URL** | Dashboard → **Project Settings** → **API** → Project URL | Frontend + backend |
 | **anon (public) key** | Same page → `anon` `public` key | Frontend (browser-safe) |
 | **service_role (secret) key** | Same page → `service_role` `secret` key | Backend only — never expose to the browser |
-| **Project ref** | Dashboard URL `supabase.com/dashboard/project/<ref>` or `supabase projects list` | CLI commands |
+| **Project ref** | Dashboard URL `supabase.com/dashboard/project/<ref>` | Identifying the project in dashboard/database settings |
 | **Direct database connection string** | Dashboard → **Project Settings** → **Database** → Connection string | Alembic migrations and backend DB access |
 | **Database password** | What you set at project creation | Direct Postgres connection |
 
-From the CLI you can also print API keys:
-
-```bash
-supabase projects api-keys --project-ref <your-project-ref>
-```
+Backend variable mapping: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and `DATABASE_URL`. Frontend mapping: `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. Also configure `VITE_API_BASE_URL` for the backend origin. Copy safe placeholders from `backend/.env.example` and `frontend/.env.example`; do not print or commit real values.
 
 Keep `service_role` out of git, client bundles, and frontend env files.
 
@@ -60,7 +56,7 @@ Alembic migrations create and update:
 - chat and citation tables
 - row-level security policies
 
-Use the direct/session database connection string for Alembic. Do not use the transaction pooler connection string for migrations.
+Use the direct/session database connection string for Alembic and SQLAlchemy. Do not use the transaction pooler connection string for migrations. The configured current migrations create `users`, `source_documents`, `document_chunks`, `chat_threads`, `chat_messages`, and `message_citations`, including pgvector/full-text indexes and RLS policies.
 
 From `backend/`:
 

@@ -10,8 +10,9 @@ This file is the source of truth for any coding agent (Claude Code, Cursor, Code
 - **Migrations:** SQLAlchemy models + Alembic from the backend
 - **Retrieval:** Supabase `pgvector` + Postgres full-text search
 - **Auth:** Supabase Auth
-- **Hosting:** Railway (backend service + frontend service)
-- **LLM + embeddings:** OpenAI
+- **Target hosting:** Railway (deployment config is not present in the current checkout)
+- **Chat and answer generation:** Groq (OpenAI-compatible API)
+- **Embeddings:** local Sentence Transformers (`sentence-transformers/all-MiniLM-L6-v2`)
 
 Stack is locked unless explicitly changed. Don't propose alternatives without a stated reason.
 
@@ -27,6 +28,8 @@ document-copilot/
 └── frontend/           # React SPA (see frontend/AGENTS.md)
 ```
 
+Start with the applicable `AGENTS.md`, then use the code-grounded guides: [architecture](docs/ARCHITECTURE.md), [request lifecycle](docs/REQUEST_LIFECYCLE.md), and [ingestion/retrieval](docs/INGESTION_AND_RETRIEVAL.md). Source code and dependency manifests are authoritative; phase plans may record historical decisions or unfinished verification.
+
 ## Dependency policy
 
 **Default: write it yourself. Reach for a library only when the alternative would be non-trivial, error-prone, or reinvention of a standard.** Every dependency is a liability — bundle size, supply-chain risk, future upgrade work.
@@ -34,7 +37,7 @@ document-copilot/
 OK to depend on:
 
 - Things that are genuinely hard to get right (HTTP clients, ASGI servers, SQL drivers, parsers, LLM SDKs, ORM, migrations, auth SDKs).
-- The declared stack (FastAPI, React, Vite, Supabase clients, OpenAI SDK, etc.).
+- The declared stack (FastAPI, React, Vite, Supabase clients, Sentence Transformers, etc.).
 
 Not OK:
 
@@ -52,9 +55,11 @@ Per-stack specifics live in `backend/AGENTS.md` and `frontend/AGENTS.md`.
 
 ## Configuration
 
-A single settings module is the source of truth for environment per service (`backend/app/config.py`, `frontend/lib/env.ts`). Do not call `os.getenv` / read `process.env` directly in app code. Do not call `load_dotenv` anywhere. If a third-party SDK reads env vars directly, mirror them in the settings module — don't sprinkle `setdefault` elsewhere.
+A single settings module is the source of truth for environment per service (`backend/app/config.py`, `frontend/src/lib/env.ts`). Do not call `os.getenv` / read `process.env` directly in app code. Do not call `load_dotenv` anywhere. If a third-party SDK reads env vars directly, mirror them in the settings module — don't sprinkle `setdefault` elsewhere.
 
 Fail fast on startup if required config is missing. No silent fallbacks that hide real config errors.
+
+Never copy real values from `.env` into docs, tests, terminal output, or frontend configuration. Document secret variable names with placeholders only.
 
 ## Code style (universal)
 

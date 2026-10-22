@@ -1,5 +1,7 @@
 # Client brief — Driftwood Capital
 
+This file records the product requirements and sample analyst questions. It is not evidence that every listed filing is currently ingested or that answer quality has been verified; see [the implementation checklist](todos.md) for those checks.
+
 ## The client
 
 **Driftwood Capital** is an independent investment research firm with ~40 analysts. They sell deep equity research to institutional clients (hedge funds, mutual funds, pension funds) under annual subscriptions ($50K–$500K+ per client), plus custom commissioned research and analyst calls.

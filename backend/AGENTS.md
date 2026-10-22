@@ -1,87 +1,45 @@
-# Backend — agent notes
+# Backend agent instructions
 
-This is the FastAPI service for Document Copilot. Read [../AGENTS.md](../AGENTS.md) first — universal building rules live there. This file adds backend-specific conventions.
+Read the [repository instructions](../AGENTS.md) first. This file adds backend-specific rules and reflects the current implementation; use [backend README](README.md) and [architecture docs](../docs/ARCHITECTURE.md) for navigation.
 
-## Stack
+## Stack and layout
 
-- Python 3.12+
-- FastAPI + uvicorn
-- Pydantic v2 + pydantic-settings
-- `httpx` for outbound HTTP
-- `pytest` for tests
-- Supabase Python client (DB + auth)
-- SQLAlchemy models + Alembic migrations for database schema changes
-- OpenAI SDK for LLM & embeddings
-- Supabase `pgvector` for semantic search and Postgres full-text search for keyword retrieval. Hybrid search should run vector and full-text queries separately, then fuse ranked results in Python with Reciprocal Rank Fusion.
-- `structlog` for logging
-- `uv` for dependency + project management
+- Python 3.12+, `uv`, FastAPI/Uvicorn, Pydantic v2/settings, PydanticAI, OpenAI-compatible SDK configured for Groq, Supabase Python client, SQLAlchemy/psycopg/Alembic, pgvector, Sentence Transformers, and Docling.
+- Runtime packages live under `app/`: API routes, auth, assistant, chat orchestration/streaming, database clients/models/persistence, embeddings, retrieval, and grounding.
+- `ingest/` contains command-line entry points; `tests/` contains offline pytest coverage.
+- There is no distinct `services/` or `repositories/` layer, no HTTP ingest route, and no standalone BM25/reranker implementation. Inspect callers before adding modules.
 
-## Dependency policy
+## Configuration and secrets
 
-See universal policy in [../AGENTS.md](../AGENTS.md). Backend-specific:
+- `app/config.py` is the single backend settings source. Do not add direct `os.getenv` or dotenv reads in application modules.
+- `.env.example` contains placeholders only; actual keys/URLs belong in ignored `.env`.
+- Never expose/log Groq, Supabase service-role, database credentials, user messages, or source excerpts.
+- Frontend must never receive backend-only credentials.
 
-- **Prefer stdlib:** `pathlib`, `datetime`, `uuid`, `enum`, `dataclasses`, `asyncio`, `collections`, `itertools`, `json`, `urllib`.
-- **Not OK without justification:** `python-dateutil`, `toolz`, `funcy`, `more-itertools`, small JSON/string micro-libs, "ergonomic" wrappers on top of declared SDKs.
-- Dev deps (test/lint/build) have a looser bar but still pick widely-used, low-footprint tools (`pytest`, `ruff`, `httpx`).
+## Database and embedding safety
 
-## Layout (to be created during build)
+- SQLAlchemy metadata is in `app/database/models/`; Alembic migrations under `alembic/versions/` are the schema source of truth. Review migrations, especially pgvector indexes and RLS policies.
+- Use the Supabase direct/session Postgres connection for Alembic; not the transaction pooler.
+- Existing vectors use `document_chunks.embedding vector(1536)` (legacy) and `embedding_384 vector(384)` (current). Runtime ingestion and retrieval use `embedding_384`.
+- Current local encoder is `sentence-transformers/all-MiniLM-L6-v2`, 384 dimensions, maximum ingestion chunk size 254 tokenizer tokens. Never change model or dimensions without a data/migration and re-embedding plan.
+- Do not run full ingestion, live provider calls, production migrations, or production DB writes unless the task explicitly authorizes them.
 
-```text
-backend/
-├── alembic/
-│   ├── env.py           # Imports app database metadata for autogenerate
-│   └── versions/        # Reviewed migration files
-├── alembic.ini
-├── app/
-│   ├── main.py          # FastAPI entrypoint
-│   ├── config.py        # Pydantic settings — single source of truth for env
-│   ├── api/             # FastAPI routers (chat, ingest, auth)
-│   ├── auth/            # Supabase JWT verification + current user dependency
-│   ├── chat/            # turn orchestration, AI SDK message conversion, streaming
-│   ├── assistant/       # PydanticAI agent, deps, outputs, instructions
-│   ├── retrieval/       # pgvector/full-text queries, RRF fusion, source passage lookup
-│   ├── grounding/       # citation validation and answer grounding checks
-│   ├── database/        # SQLAlchemy models, Supabase client wrapper, typed query helpers
-│   └── prompts/         # prompt/instruction templates if not colocated with assistant
-├── ingest/              # one-off ingestion scripts (Markdown extraction, chunking, embedding, Supabase writes)
-├── tests/
-└── pyproject.toml
+## Commands
+
+Run from `backend/`:
+
+```powershell
+uv sync
+uv run uvicorn app.main:app --reload
+uv run pytest -m "not integration"
+uv run ruff check .
+uv run alembic upgrade head
 ```
 
-## Code style (backend-specific)
+Chunk CLI: `uv run python -m ingest.load_document_chunks` with one of `--dry-run`, `--pilot`, or `--all`. `--all` writes to the configured database. Source document importer is `uv run python -m ingest.load_source_documents` (delegates to `data/import_source_documents.py`).
 
-- **Type hints on public functions and module-level things.** Don't annotate every local.
-- **Async by default in request-path code.** Don't run blocking I/O on the event loop. Tempfile + small synchronous file reads are OK (they're fast); network calls must be async.
-- **Use `async def` for all route handlers** and any I/O service function.
-- **Validate at boundaries only.** HTTP input is validated by Pydantic models. External API responses are validated when parsed. Internal callers are trusted.
+## Change and verification rules
 
-## Configuration
-
-- `app.config.settings` is the single source of truth. Import settings where needed; never call `os.getenv` in app code, never call `load_dotenv`.
-- If a third-party SDK reads `os.environ` directly, add the mirror in `config.py` — don't sprinkle `setdefault` elsewhere.
-- Fail fast on startup when required env vars are missing.
-
-## Database migrations
-
-- Alembic is the source of truth for schema changes. Do not change production tables manually in the Supabase dashboard.
-- SQLAlchemy models describe normal tables and columns. Alembic autogenerate creates candidate migrations, but every generated migration must be reviewed before applying.
-- Supabase/Postgres-specific features belong in explicit migration operations: `create extension vector`, generated `tsvector` columns, HNSW/GIN indexes, RLS enablement, and RLS policies.
-- Alembic must use the direct/session database connection, not the Supabase transaction pooler URL.
-- Run migrations from `backend/` with `uv run alembic upgrade head`.
-
-## Tests
-
-- **Prefer unit over integration.** Mock at the service boundary.
-- Fast suite (`pytest -m "not integration"`) must stay green and hit no network / no DB.
-- Integration tests go behind `@pytest.mark.integration` and may require live OpenAI / Supabase credentials.
-- Tests live next to what they test (`retrieval/retriever.py` → `tests/retrieval/test_retriever.py`).
-- Required test coverage: ingestion logic, retrieval, citation extraction, grounding enforcement.
-
-## Anti-patterns (rejected)
-
-- `os.getenv` / `load_dotenv` in modules.
-- Wrapping FastAPI responses in custom envelope classes.
-- Over-catching `Exception` just to log and re-raise; let it propagate.
-- Shared state through globals instead of FastAPI `app.state` or DI.
-- Silent fallbacks that hide real config errors.
-- Mocking the LLM in unit tests without also testing the grounding contract — the prompt is the product.
+- Preserve HTTP routes, payload names, stream event names, and citation trust guarantees unless the task changes their contract. Check frontend `src/lib/api.ts` when editing request/stream shapes.
+- Retrieval unit tests and grounding tests should not access live DB/Groq. Keep integration work explicitly marked.
+- Inspect existing ingestion/retrieval/model implementations before creating duplicates. Prefer the smallest change, avoid dependencies, and report unverified database/provider behavior honestly.
